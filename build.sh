@@ -8,7 +8,7 @@
 # Needs only Apple's Command Line Tools (xcode-select --install). No Xcode project, no dependencies.
 set -e
 cd "$(dirname "$0")"
-VERSION=1.0.0
+VERSION=1.0.1
 BUNDLE_ID=com.ranbirdhall.squeak
 APP=build/Squeak.app
 rm -rf build && mkdir -p $APP/Contents/MacOS $APP/Contents/Resources build/obj

@@ -25,7 +25,7 @@ every time you switch. Squeak fixes that:
 - **Game calibration.** Turn one camera circle at the sensitivity that already feels right, and one at the value
   you want to keep. Squeak works out the multiplier that makes them feel the same.
 - **Relative speeds.** Set a device to "0.5× my trackpad" (or any device) and it follows when that one changes.
-- **100+ cartoon icons.** Popular gaming and ergonomic mice are recognised and get their own icon as you connect them.
+- **106 mouse icons.** 75 gaming and 25 ergonomic mice, plus Apple and generic devices, are recognised by name and get their own stylised icon as you connect them.
 - **Starts at login** if you want it to, and puts your original speeds back when you quit.
 
 ## Install
@@ -82,7 +82,13 @@ See [SECURITY.md](SECURITY.md).
 Any mouse or trackpad works. These are recognised by name and get their own icon: 75 gaming mice (Razer, Logitech G,
 Finalmouse, Zowie, SteelSeries, Glorious, Pulsar, Lamzu, Endgame Gear, VAXEE, Corsair, HyperX, Roccat, ASUS ROG and
 more), 25 ergonomic and work mice (MX Master, MX Vertical, Lift, trackballs, Microsoft, Kensington…), Apple's Magic
-Mouse and trackpads, plus brand-coloured and generic fallbacks. Missing yours?
+Mouse and trackpads, plus generic fallbacks: 106 icons in all.
+
+The icons are **stylised, not exact likenesses.** They're drawn in code from a handful of body types (symmetric,
+ergonomic, honeycomb, office, vertical, trackball), and each model is set apart by its shape proportions, colourway,
+shell pattern, side buttons, scroll wheel, cable and tile colour. Many gaming mice share a body type, so some icons
+differ mainly in colour and detail. A built-in check (`Squeak --distinct`) compares every icon with every other one
+pixel by pixel and fails if any two are too alike. An unrecognised mouse gets a brand-coloured or generic icon. Missing yours?
 [Open an issue](https://github.com/Ranbo-codez/Squeak/issues) or [add a line](CONTRIBUTING.md#adding-a-mouse).
 
 <p align="center"><img src="docs/icons.png" width="720" alt="All of Squeak's mouse icons"></p>

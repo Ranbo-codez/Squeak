@@ -21,7 +21,7 @@ You only need Apple's Command Line Tools (`xcode-select --install`). No Xcode pr
 | `Sources/Engine.swift` | Device detection (IOKit notifications), per-device speed, app rules, settings |
 | `Sources/Scaler.swift` | Exact in-game multiplier (event tap) and game calibration |
 | `Sources/UI.swift` | The panel (plain AppKit, built on demand and freed when closed) |
-| `Sources/Catalog.swift` | The 100+ mouse models and how devices are matched to them |
+| `Sources/Catalog.swift` | The 106 mouse models and how devices are matched to them |
 | `Sources/IconArt.swift` | Every icon, drawn in code (no image files) |
 | `Sources/DevTools.swift` | Renders the README screenshots, app icon and social preview |
 
@@ -34,8 +34,26 @@ Brand|Model name|match words|shape|body hex|accent hex|flags
 ```
 
 `match words` is matched against the name the device reports (case and punctuation ignored); the longest
-match wins. Shapes: `ambi`, `ergo`, `ambiLite`, `ergoLite` (honeycomb), `office`, `compact`, `vert`,
-`ball`, `flat`, `trackpad`, `laptop`. Flag `rgb` adds a glow strip.
+match wins. Shapes: `ambi`, `ergo`, `ambiLite`, `ergoLite` (lightweight shell), `office`, `compact`, `vert`,
+`ball`, `flat`, `trackpad`, `laptop`.
+
+Flags (space-separated) make the icon look like that model:
+
+| Flag | Effect |
+| --- | --- |
+| `rgb`, `cable`, `dpi`, `sniper`, `paddle`, `wing`, `grid` | glow strip, cable, DPI button, sniper button, clutch paddle, wide thumb rest, MMO side grid |
+| `side=N`, `rside=N` | thumb-side buttons (left), buttons on the right side too |
+| `len=`, `wid=`, `mid=` | body length, width, where the widest point sits (0–1, low = hump at the back) |
+| `pat=holes\|hex\|slots\|cut` | shell cut-outs |
+| `glyph=tri\|ring\|chev\|bolt\|diamond\|plus\|x\|wave\|hex\|star\|sail\|dot\|none` | palm emblem (generic shapes, never brand logos) |
+| `wheel=wide\|metal`, `stripe=hex`, `panel=hex`, `tile=hex` | scroll wheel style, centre stripe, two-tone side panels, tile colour |
+| `ball=thumb\|big\|center`, `tilt=`, `nothumb`, `hinge` | trackball layout, vertical-mouse lean, no thumb wheel, Arc-style bend |
+
+Then make sure your icon doesn't look like an existing one:
+
+```bash
+./build.sh && build/Squeak.app/Contents/MacOS/Squeak --distinct 15   # fails if any two icons are too alike
+```
 
 ## README images
 
