@@ -18,7 +18,31 @@ final class Scaler {
     private var lastReport: [String: UInt64] = [:]
     private var keyCache: [IOHIDDevice: String] = [:]
     /// device key -> multiplier, for the front app. Trackpads use "trackpad".
-    var scales: [String: Double] = [:]
+    private var _scales: [String: Double] = [:]
+    var scales: [String: Double] { lock.lock(); defer { lock.unlock() }; return _scales }
+
+    /// Guards everything the input thread and the main thread both touch.
+    private let lock = NSLock()
+    /// Fractional movement not yet sent. macOS stores deltas as whole numbers, so 0.135 × a 3-unit move would
+    /// otherwise round to 0 and vanish (slow aim lost, fast aim lurching). Carrying the remainder keeps it smooth.
+    private var resX = 0.0, resY = 0.0, resKey = ""
+
+    /// A dedicated high-priority thread for the event tap and HID listener, so mouse events never wait behind
+    /// anything else Squeak does on its main thread.
+    private static let inputLoop: CFRunLoop = {
+        var loop: CFRunLoop?
+        let ready = DispatchSemaphore(value: 0)
+        let t = Thread {
+            loop = CFRunLoopGetCurrent()
+            var ctx = CFRunLoopSourceContext()
+            CFRunLoopAddSource(loop, CFRunLoopSourceCreate(nil, 0, &ctx), .defaultMode)   // keeps the loop alive
+            ready.signal()
+            CFRunLoopRun()
+        }
+        t.name = "Squeak input"; t.qualityOfService = .userInteractive; t.start()
+        ready.wait()
+        return loop!
+    }()
 
     // MARK: auto-match calibration
     /// Bundle id of the real frontmost app (including Squeak itself).
@@ -31,17 +55,18 @@ final class Scaler {
     private(set) var calPhase = 0
     private(set) var calF0: Double = 1
     /// Raw (pre-scale) horizontal hand movement per phase, counted only while the app has the cursor locked.
-    private(set) var calRaw: [Double] = [0, 0]
+    private var _calRaw: [Double] = [0, 0]
+    var calRaw: [Double] { lock.lock(); defer { lock.unlock() }; return _calRaw }
     private var lastLoc = CGPoint.zero
 
     func beginCalibration(bundle: String, device: String, key: String) {
-        calBundle = bundle; calDevice = device; calKey = key; calRaw = [0, 0]; calPhase = 1; calibrating = true
+        lock.lock(); calBundle = bundle; calDevice = device; calKey = key; _calRaw = [0, 0]; calPhase = 1; calibrating = true; lock.unlock()
         if !running { start() }
     }
-    func startCheckCircle(multiplier: Double) { calF0 = multiplier; calRaw[1] = 0; calPhase = 2 }
-    func redoPhase() { if calPhase >= 1 && calPhase <= 2 { calRaw[calPhase - 1] = 0 } }
+    func startCheckCircle(multiplier: Double) { lock.lock(); calF0 = multiplier; _calRaw[1] = 0; calPhase = 2; lock.unlock() }
+    func redoPhase() { lock.lock(); if calPhase >= 1 && calPhase <= 2 { _calRaw[calPhase - 1] = 0 }; lock.unlock() }
     func endCalibration() {
-        calibrating = false; calBundle = nil; calDevice = nil; calKey = nil; calPhase = 0; calRaw = [0, 0]
+        lock.lock(); calibrating = false; calBundle = nil; calDevice = nil; calKey = nil; calPhase = 0; _calRaw = [0, 0]; lock.unlock()
         update(scales: scales)
     }
 
@@ -80,7 +105,7 @@ final class Scaler {
 
     // MARK: lifecycle
     func update(scales new: [String: Double]) {
-        scales = new
+        lock.lock(); _scales = new; lock.unlock()
         let needed = calibrating || (!new.isEmpty && new.values.contains { $0 != 1 })
         if needed && !running { start() } else if !needed && running { stop() }
         else if running && manager == nil && Self.hasInputMonitoring { startHID() }
@@ -103,18 +128,20 @@ final class Scaler {
         }, userInfo: me) else { return }
         tap = t
         tapSource = CFMachPortCreateRunLoopSource(nil, t, 0)
-        CFRunLoopAddSource(CFRunLoopGetMain(), tapSource, .commonModes)
+        CFRunLoopAddSource(Self.inputLoop, tapSource, .commonModes)
         CGEvent.tapEnable(tap: t, enable: true)
+        CFRunLoopWakeUp(Self.inputLoop)
         startHID()
         running = true
     }
 
     private func stop() {
         if let t = tap { CGEvent.tapEnable(tap: t, enable: false); CFMachPortInvalidate(t) }
-        if let s = tapSource { CFRunLoopRemoveSource(CFRunLoopGetMain(), s, .commonModes) }
+        if let s = tapSource { CFRunLoopRemoveSource(Self.inputLoop, s, .commonModes) }
         tap = nil; tapSource = nil
-        if let m = manager { IOHIDManagerUnscheduleFromRunLoop(m, CFRunLoopGetMain(), CFRunLoopMode.defaultMode.rawValue); IOHIDManagerClose(m, 0) }
-        manager = nil; keyCache = [:]; lastReport = [:]
+        if let m = manager { IOHIDManagerUnscheduleFromRunLoop(m, Self.inputLoop, CFRunLoopMode.defaultMode.rawValue); IOHIDManagerClose(m, 0) }
+        manager = nil
+        lock.lock(); keyCache = [:]; lastReport = [:]; resX = 0; resY = 0; lock.unlock()
         running = false
     }
 
@@ -134,6 +161,7 @@ final class Scaler {
             let s = Unmanaged<Scaler>.fromOpaque(ref!).takeUnretainedValue()
             guard IOHIDValueGetIntegerValue(value) != 0 else { return }
             let dev = IOHIDElementGetDevice(IOHIDValueGetElement(value))
+            s.lock.lock(); defer { s.lock.unlock() }
             let key = s.keyCache[dev] ?? {
                 func p(_ k: String) -> Any? { IOHIDDeviceGetProperty(dev, k as CFString) }
                 let k = "\(p(kIOHIDVendorIDKey) as? Int ?? 0):\(p(kIOHIDProductIDKey) as? Int ?? 0):\(p(kIOHIDProductKey) as? String ?? "")"
@@ -141,8 +169,9 @@ final class Scaler {
             }()
             s.lastReport[key] = mach_absolute_time()
         }, me)
-        IOHIDManagerScheduleWithRunLoop(m, CFRunLoopGetMain(), CFRunLoopMode.defaultMode.rawValue)
+        IOHIDManagerScheduleWithRunLoop(m, Self.inputLoop, CFRunLoopMode.defaultMode.rawValue)
         IOHIDManagerOpen(m, 0)
+        CFRunLoopWakeUp(Self.inputLoop)
         manager = m
     }
 
@@ -161,6 +190,7 @@ final class Scaler {
     }
 
     private func scale(_ e: CGEvent) {
+        lock.lock(); defer { lock.unlock() }
         let key = sourceKey()
         if calibrating {
             // Count only camera turning: the app has locked the cursor, so its position stays put while deltas flow.
@@ -168,22 +198,27 @@ final class Scaler {
             let locked = abs(loc.x - lastLoc.x) < 0.5 && abs(loc.y - lastLoc.y) < 0.5
             lastLoc = loc
             if front == calBundle, key == calKey, locked, calPhase == 1 || calPhase == 2 {
-                calRaw[calPhase - 1] += e.getDoubleValueField(.mouseEventDeltaX)
+                _calRaw[calPhase - 1] += e.getDoubleValueField(.mouseEventDeltaX)
             }
             if key == calKey {
                 let f = calPhase == 2 ? calF0 : 1   // phase 1 = untouched; phase 2 = the multiplier under test
-                if f != 1 { mul(e, f) }
+                if f != 1 { mul(e, f, key: key) }
                 return
             }
         }
-        let f = scales[key] ?? 1
+        let f = _scales[key] ?? 1
         guard f != 1 else { return }
-        mul(e, f)
+        mul(e, f, key: key)
     }
 
-    private func mul(_ e: CGEvent, _ f: Double) {
-        let dx = e.getDoubleValueField(.mouseEventDeltaX), dy = e.getDoubleValueField(.mouseEventDeltaY)
-        e.setDoubleValueField(.mouseEventDeltaX, value: dx * f)
-        e.setDoubleValueField(.mouseEventDeltaY, value: dy * f)
+    /// Scales one event's deltas, carrying the fractional remainder into the next event so nothing is lost.
+    func mul(_ e: CGEvent, _ f: Double, key: String) {
+        if key != resKey { resX = 0; resY = 0; resKey = key }   // new device: don't leak another device's leftovers
+        resX += Double(e.getIntegerValueField(.mouseEventDeltaX)) * f
+        resY += Double(e.getIntegerValueField(.mouseEventDeltaY)) * f
+        let ox = resX.rounded(.towardZero), oy = resY.rounded(.towardZero)
+        resX -= ox; resY -= oy
+        e.setIntegerValueField(.mouseEventDeltaX, value: Int64(ox))
+        e.setIntegerValueField(.mouseEventDeltaY, value: Int64(oy))
     }
 }

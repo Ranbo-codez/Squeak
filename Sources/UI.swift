@@ -127,7 +127,7 @@ final class PanelVC: NSViewController {
             let state = label(s.managed ? (s.base.relTo != nil ? String(format: "%g× ", s.base.factor ?? 1) + relName + (s.base.flat ? " · flat" : "") : "Speed \(s.base.flat ? "flat" : pct(s.base.speed))\(s.base.mult != 1 && HID.supportsScale(d) ? String(format: " · %.2g×", s.base.mult) : "")") + (s.apps.isEmpty ? "" : " · \(s.apps.count) app rule\(s.apps.count == 1 ? "" : "s")") : "Using system settings", size: 11.5, color: s.managed ? .controlAccentColor : .tertiaryLabelColor)
             if multi && isActive { state.stringValue = "Active · " + state.stringValue; state.textColor = .controlAccentColor }
             let texts = NSStackView(views: [name, model, state]); texts.orientation = .vertical; texts.alignment = .leading; texts.spacing = 2
-            var row: [NSView] = [imageView(IconArt.image(for: d.spec, size: 64), 64), texts]
+            let row: [NSView] = [imageView(IconArt.image(for: d.spec, size: 64), 64), texts]
             let h = hstack(row, spacing: 12)
             h.translatesAutoresizingMaskIntoConstraints = false
             let card = Card(frame: .zero)
